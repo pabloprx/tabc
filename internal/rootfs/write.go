@@ -110,6 +110,18 @@ func (t *DirTree) Rename(from, to string) error {
 // replacing what is already there. Both names are inside the tree, as
 // os.Root insists.
 func (t *DirTree) Hardlink(target, path string) error {
+	// Only a regular file gets a second name, as link(2) refuses a
+	// directory. A symbolic link is refused too: a hard link to a
+	// symbolic link is a name no program asks for, and a host whose link
+	// followed the symbolic link would name a file outside the tree.
+	info, err := t.root.Lstat(relative(target))
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return syscall.EPERM
+	}
+
 	return t.root.Link(relative(target), relative(path))
 }
 

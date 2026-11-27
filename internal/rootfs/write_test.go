@@ -195,3 +195,42 @@ func TestHardlink(t *testing.T) {
 		t.Errorf("a link on a read-only tree: %d", status)
 	}
 }
+
+// TestHardlinkOnlyToRegularFile checks that a hard link is made to a
+// regular file and to nothing else. The volume holds a symbolic link
+// that points at a file outside the volume; a hard link to that
+// symbolic link has to be refused, leave no new name behind, and leave
+// the outside file with the one name it had.
+func TestHardlinkOnlyToRegularFile(t *testing.T) {
+	base := t.TempDir()
+	dir := filepath.Join(base, "volume")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(base, "secret")
+	if err := os.WriteFile(outside, []byte("host"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../secret", filepath.Join(dir, "pointer")); err != nil {
+		t.Fatal(err)
+	}
+	tree, err := OpenDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tree.Close()
+
+	if err := tree.Hardlink("/pointer", "/copy"); !errors.Is(err, fs.ErrPermission) {
+		t.Errorf("a hard link to a symbolic link: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "copy")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the refused link left a name behind: %v", err)
+	}
+	outsideInfo, err := os.Stat(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attr, known := attrOf(outsideInfo); !known || attr.Nlink != 1 {
+		t.Errorf("the file outside the volume has %d names", attr.Nlink)
+	}
+}

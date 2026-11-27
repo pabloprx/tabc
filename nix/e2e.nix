@@ -47,6 +47,65 @@ pkgs.runCommand "tabc-e2e"
     echo "a writable root over a read-only image"
     test "$(run writable sh -c 'echo x > /tmp/f && cat /tmp/f' < /dev/null)" = x
 
+    # A volume: a directory of the host, bound into the container. The
+    # page keeps a volume's attributes for a moment, so each change
+    # the program makes is followed by a question that an attribute
+    # kept from before the change would answer wrong: a size after an
+    # append, a name after a rename and after a removal.
+    echo "a volume: the host's file, and the program's own changes at once"
+    mkdir -p bundles/volume volume
+    ln -s ${bundle}/rootfs bundles/volume/rootfs
+    echo from the host > volume/given
+    volume() {
+      local name=$1
+      jq --arg source "$PWD/volume" '
+        .process.args = ["sh", "-c", $ARGS.positional[0]]
+        | .mounts = [{destination: "/v", type: "bind", source: $source, options: ["rbind", "rw"]}]
+      ' --args -- "$2" < ${bundle}/config.json > bundles/volume/config.json
+      tabc --root "$PWD/state" run --bundle bundles/volume $name < /dev/null
+    }
+    volume volume-own '
+      cat /v/given
+      ls -l /v > /dev/null
+      test -e /v/made || echo absent
+      echo 12345 > /v/made; stat -c %s /v/made
+      echo abcde >> /v/made; stat -c %s /v/made
+      mv /v/made /v/moved; ls /v
+      test -e /v/made || echo renamed
+      rm /v/moved; test -e /v/moved || echo removed
+      echo from the guest > /v/left
+    ' > volume.txt
+    printf '%s\n' "from the host" absent 6 12 given moved renamed removed > wanted.txt
+    cmp volume.txt wanted.txt
+    test "$(cat volume/left)" = "from the guest"
+
+    # A change made on the host is one the page is not told of, so a
+    # kept attribute has to run out by itself. The program says through
+    # the volume that it is about to ask, then asks for a name that is
+    # not there, which the page keeps as the answer. The host makes the
+    # name half a second after the program spoke: after the question,
+    # and before the kept answer runs out. The program gives up after
+    # ten seconds, so a kept answer that never runs out fails here and
+    # does not hang the build.
+    echo "a volume: a change made on the host, seen in time"
+    (
+      until [ -e volume/asking ]; do
+        sleep 0.1
+      done
+      sleep 0.5
+      touch volume/late
+    ) &
+    test "$(volume volume-host '
+      echo x > /v/asking
+      tries=0
+      until [ -e /v/late ] || [ $tries -ge 100 ]; do
+        sleep 0.1
+        tries=$((tries + 1))
+      done
+      test -e /v/late && echo seen || echo never
+    ')" = seen
+    wait
+
     echo "the guest is its own machine"
     test "$(run machine uname -m < /dev/null)" = aarch64
 

@@ -106,11 +106,21 @@ WebSocket, and from there it is a connection in like any other.
 ## Volumes
 
 A volume is a directory of the host. The page mounts it in the guest
-as a file system that keeps nothing: every lookup and every change is
-a request to the supervisor, which applies it through `os.Root`. Init
-binds the mount to its place in the container. A single small file is
-copied by content instead, as an engine's bound configuration files
-are.
+as a file system that keeps no contents: every read and every change
+is a request to the supervisor, which applies it through `os.Root`.
+Init binds the mount to its place in the container. A single small
+file is copied by content instead, as an engine's bound configuration
+files are.
+
+A path's attributes are kept, for at most a second. The guest asks for
+them several times for one use of a file, and a directory's listing
+already carries the attributes of every name in it, so the page keeps
+what a listing brought and answers the questions that follow from
+that. A name that is not there is kept as that answer too. A change
+the guest makes drops everything kept, so the guest sees its own
+changes at once. A change made on the host shows within about two
+seconds: one for the page, and one more for the guest's kernel, which
+keeps attributes that long on its own.
 
 ## Terminal
 
