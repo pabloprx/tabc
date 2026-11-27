@@ -19,13 +19,14 @@ import (
 // The operations that change a tree, as the last element of the
 // request's path. All are POSTs.
 const (
-	OpCreate  = "create"
-	OpWrite   = "write"
-	OpMkdir   = "mkdir"
-	OpRemove  = "remove"
-	OpRename  = "rename"
-	OpSetattr = "setattr"
-	OpSymlink = "symlink"
+	OpCreate   = "create"
+	OpWrite    = "write"
+	OpMkdir    = "mkdir"
+	OpRemove   = "remove"
+	OpRename   = "rename"
+	OpSetattr  = "setattr"
+	OpSymlink  = "symlink"
+	OpHardlink = "hardlink"
 )
 
 // The parameters of a change: a mode, whether a removal is of a
@@ -104,6 +105,14 @@ func (t *DirTree) Rename(from, to string) error {
 	return t.root.Rename(relative(from), relative(to))
 }
 
+// Hardlink makes path a new name for the regular file at target: a hard
+// link, which a package manager makes to put a file in place without
+// replacing what is already there. Both names are inside the tree, as
+// os.Root insists.
+func (t *DirTree) Hardlink(target, path string) error {
+	return t.root.Link(relative(target), relative(path))
+}
+
 // Symlink makes a symbolic link at path that points to target.
 func (t *DirTree) Symlink(path, target string) error {
 	return t.root.Symlink(target, relative(path))
@@ -166,6 +175,7 @@ type Writer interface {
 	Remove(path string, isDir bool) error
 	Rename(from, to string) error
 	Symlink(path, target string) error
+	Hardlink(target, path string) error
 	SetAttr(path string, change SetAttr) error
 }
 
@@ -174,7 +184,7 @@ type Writer interface {
 // read.
 func (h Handler) change(w http.ResponseWriter, r *http.Request, op string) bool {
 	switch op {
-	case OpCreate, OpWrite, OpMkdir, OpRemove, OpRename, OpSetattr, OpSymlink:
+	case OpCreate, OpWrite, OpMkdir, OpRemove, OpRename, OpSetattr, OpSymlink, OpHardlink:
 	default:
 		return false
 	}
@@ -205,6 +215,8 @@ func (h Handler) change(w http.ResponseWriter, r *http.Request, op string) bool 
 		err = writer.Rename(path, query.Get(paramTarget))
 	case OpSymlink:
 		err = writer.Symlink(path, query.Get(paramTarget))
+	case OpHardlink:
+		err = writer.Hardlink(query.Get(paramTarget), path)
 	case OpSetattr:
 		var change SetAttr
 		if err = json.NewDecoder(r.Body).Decode(&change); err == nil {

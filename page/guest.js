@@ -383,6 +383,7 @@ function volumeFs(index) {
     },
     mkdir: (path, mode) => change("mkdir", path, { m: octal(mode) }),
     symlink: (path, target) => change("symlink", path, { t: target }),
+    link: (target, path) => change("hardlink", path, { t: target }),
     remove: (path, dir) => change("remove", path, { d: dir ? 1 : 0 }),
     rename: (from, to) => change("rename", from, { t: to }),
     setattr: (path, attr) => change("setattr", path, {}, JSON.stringify(attr)),

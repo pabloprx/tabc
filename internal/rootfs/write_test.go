@@ -135,3 +135,63 @@ func TestHandlerChanges(t *testing.T) {
 		t.Error("a file was made outside the volume")
 	}
 }
+
+// TestHardlink checks the hard link a package manager makes to put a
+// file in place without replacing one that is there (uv's lock, cargo's
+// and npm's caches): a second name for the same file, refused over a
+// name that is taken, for a directory, out of the volume, and on a
+// read-only tree.
+func TestHardlink(t *testing.T) {
+	dir := t.TempDir()
+	tree, err := OpenDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tree.Close()
+	if err := os.WriteFile(filepath.Join(dir, "tmp-123"), []byte("lock"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := tree.Hardlink("/tmp-123", "/lock"); err != nil {
+		t.Fatalf("hardlink: %v", err)
+	}
+	first, _ := os.Stat(filepath.Join(dir, "tmp-123"))
+	second, _ := os.Stat(filepath.Join(dir, "lock"))
+	if !os.SameFile(first, second) {
+		t.Error("the two names are not one file")
+	}
+	if attr, _ := tree.Attr("/lock"); attr.Nlink != 2 {
+		t.Errorf("link count: %d", attr.Nlink)
+	}
+	if err := tree.Hardlink("/tmp-123", "/lock"); !errors.Is(err, fs.ErrExist) {
+		t.Errorf("a link over a taken name: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := tree.Hardlink("/d", "/d2"); err == nil {
+		t.Error("a hard link to a directory was made")
+	}
+
+	post := func(handler Handler, params url.Values) int {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/vol/"+OpHardlink+"?"+params.Encode(), nil)
+		handler.Serve(recorder, request, OpHardlink)
+		return recorder.Code
+	}
+	volume := Handler{Tree: tree, Writable: true}
+	if status := post(volume, url.Values{"p": {"/again"}, "t": {"/tmp-123"}}); status != http.StatusOK {
+		t.Errorf("hardlink through the handler: %d", status)
+	}
+	outside := filepath.Join(filepath.Dir(dir), "secret")
+	if err := os.WriteFile(outside, []byte("host"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(outside)
+	if status := post(volume, url.Values{"p": {"/stolen"}, "t": {"/../secret"}}); status == http.StatusOK {
+		t.Error("a link to a file outside the volume was made")
+	}
+	if status := post(Handler{Tree: tree}, url.Values{"p": {"/ro"}, "t": {"/tmp-123"}}); status != http.StatusForbidden {
+		t.Errorf("a link on a read-only tree: %d", status)
+	}
+}

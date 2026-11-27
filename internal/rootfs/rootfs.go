@@ -59,6 +59,10 @@ const (
 	codeReadOnly = "EROFS"
 	codeExists   = "EEXIST"
 	codeNotEmpty = "ENOTEMPTY"
+	// A hard link across file systems, or to a file with too many: a
+	// tool that copies when it cannot link needs to be told which.
+	codeCrossDevice  = "EXDEV"
+	codeTooManyLinks = "EMLINK"
 )
 
 // maxRead is the most bytes one read returns. The guest's 9p client
@@ -222,6 +226,10 @@ func failWith(w http.ResponseWriter, err error) {
 		fail(w, http.StatusBadRequest, codeIsDir)
 	case errors.Is(err, fs.ErrInvalid), errors.Is(err, syscall.EINVAL):
 		fail(w, http.StatusBadRequest, codeInvalid)
+	case errors.Is(err, syscall.EXDEV):
+		fail(w, http.StatusConflict, codeCrossDevice)
+	case errors.Is(err, syscall.EMLINK):
+		fail(w, http.StatusConflict, codeTooManyLinks)
 	default:
 		// os.Root reports an escape with an error of its own that names
 		// no errno.
